@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stadium Pints</title>
+<meta name="description" content="Spin a real satellite globe, drop a pin on the stadium, earn pints. Five grounds a day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<style>
+/* A real satellite globe (Esri World Imagery, no API key) fills the screen in space. UI is thin dark glass with white type;
+   the only colour is one amber accent. Nothing illustrated, nothing chunky: the imagery is the picture. */
+:root{
+  --space:#030508;
+  --glass:rgba(8,11,16,.66);
+  --glass-2:rgba(8,11,16,.82);
+  --hair:rgba(255,255,255,.12);
+  --text:#f2f4f7;
+  --muted:rgba(242,244,247,.58);
+  --amber:#f0b353;
+  --amber-dim:rgba(240,179,83,.18);
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--space);color:var(--text);font-family:var(--f-body);font-size:15px;overflow:hidden;-webkit-tap-highlight-color:transparent}
+#map{position:fixed;inset:0;background:
+  radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.7),transparent 60%),
+  radial-gradient(1px 1px at 78% 9%,rgba(255,255,255,.6),transparent 60%),
+  radial-gradient(1.5px 1.5px at 64% 72%,rgba(255,255,255,.55),transparent 60%),
+  radial-gradient(1px 1px at 31% 84%,rgba(255,255,255,.5),transparent 60%),
+  radial-gradient(1px 1px at 90% 48%,rgba(255,255,255,.6),transparent 60%),
+  radial-gradient(1px 1px at 46% 36%,rgba(255,255,255,.35),transparent 60%),
+  radial-gradient(1.5px 1.5px at 22% 56%,rgba(255,255,255,.45),transparent 60%),
+  radial-gradient(1px 1px at 85% 86%,rgba(255,255,255,.4),transparent 60%),
+  radial-gradient(1px 1px at 55% 6%,rgba(255,255,255,.5),transparent 60%),
+  radial-gradient(1px 1px at 5% 42%,rgba(255,255,255,.45),transparent 60%),
+  var(--space)}
+#map.aiming .maplibregl-canvas{cursor:crosshair}
+.maplibregl-ctrl-attrib{font-size:10px;background:rgba(0,0,0,.45)!important;color:#bbb}
+.maplibregl-ctrl-attrib a{color:#ddd}
+.maplibregl-ctrl-bottom-right{bottom:calc(env(safe-area-inset-bottom,0px) + 2px)}
+
+.top{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;pointer-events:none;z-index:5}
+.tl{background:var(--glass);border:1px solid var(--hair);border-radius:10px;padding:8px 12px 8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);pointer-events:auto}
+.brand{font-family:var(--f-display);font-size:22px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text);line-height:1}
+.brand small{display:block;font-family:var(--f-body);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-top:4px;font-weight:600}
+.hud{display:flex;gap:6px;align-items:center;pointer-events:auto;flex-wrap:wrap;justify-content:flex-end}
+.pill{font-variant-numeric:tabular-nums;background:var(--glass);border:1px solid var(--hair);border-radius:999px;padding:7px 12px;font-size:12px;font-weight:600;color:var(--text);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);letter-spacing:.02em}
+.pill b{color:var(--amber);font-weight:600}
+.tog{cursor:pointer;user-select:none;color:var(--muted)}
+.tog.on{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.zoom{position:fixed;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:5}
+.iconbtn{background:var(--glass);border:1px solid var(--hair);color:var(--text);width:40px;height:40px;border-radius:50%;font-size:20px;cursor:pointer;display:grid;place-items:center;padding:0;line-height:1;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-weight:300}
+.iconbtn:hover{border-color:rgba(255,255,255,.4)}
+.iconbtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5}
+
+.card{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);transform:translateX(-50%);width:min(520px,calc(100% - 28px));z-index:6;
+  background:var(--glass-2);color:var(--text);border-radius:14px;padding:14px 16px 14px;border:1px solid var(--hair);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 20px 60px rgba(0,0,0,.6);transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .3s}
+.card.hide{transform:translate(-50%,130%);opacity:0;pointer-events:none}
+.meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--muted)}
+.chip{color:var(--amber)}
+.q{font-family:var(--f-display);font-weight:600;font-size:clamp(26px,6vw,34px);line-height:1;margin:8px 0 2px;text-wrap:balance;letter-spacing:.01em}
+.sub{font-size:14px;color:var(--muted);margin:0 0 12px;font-weight:500}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--muted);flex:1;min-width:0;line-height:1.4}
+.btn{font-family:var(--f-display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;border:0;border-radius:8px;padding:11px 18px;cursor:pointer;background:var(--text);color:#0b0d12;transition:transform .15s,opacity .2s}
+.btn:hover{opacity:.9}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--text);box-shadow:0 0 0 1px var(--hair) inset}
+
+.result{display:flex;gap:14px;align-items:center;margin:6px 0 12px}
+.pints{display:flex;gap:3px}
+.pints svg{width:18px;height:26px}
+.pints .e{opacity:.22}
+.verdict{font-family:var(--f-display);font-weight:600;font-size:22px;line-height:1;letter-spacing:.01em}
+.dist{font-size:13px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+
+.veil{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(3,5,8,.42);padding:16px;transition:opacity .4s}
+.veil.hide{opacity:0;pointer-events:none}
+.panel{width:min(440px,100%);background:var(--glass-2);border:1px solid var(--hair);border-radius:16px;padding:26px 24px 22px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 30px 80px rgba(0,0,0,.6);text-align:center}
+.panel h1{font-family:var(--f-display);font-weight:700;font-size:clamp(40px,10vw,56px);margin:0;line-height:.95;letter-spacing:.02em;text-transform:uppercase}
+.panel h1 small{display:block;font-family:var(--f-body);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin-top:10px;font-weight:600}
+.panel p{color:var(--muted);line-height:1.5;margin:14px 0 0;font-size:14px}
+.rules{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;text-align:left;margin:18px auto 4px;font-size:13px;max-width:300px;align-items:center;color:var(--text)}
+.rules .pints svg{width:11px;height:16px}
+.actions{display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap}
+.glass{width:72px;height:104px;margin:14px auto 0;position:relative;border:2px solid rgba(255,255,255,.75);border-top:0;border-radius:0 0 10px 10px;background:rgba(255,255,255,.04);overflow:hidden}
+.glass i{position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(180deg,#f3c160,#d98a1f);transition:height 1.2s cubic-bezier(.2,.8,.2,1)}
+.glass b{position:absolute;left:0;right:0;height:10px;background:#fff8ea;bottom:0;transition:bottom 1.2s cubic-bezier(.2,.8,.2,1);opacity:0}
+.glass.pour b{opacity:1}
+.big{font-family:var(--f-display);font-weight:600;font-size:46px;line-height:1;margin-top:10px;letter-spacing:.02em}
+.big small{font-size:16px;color:var(--muted);font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+.lines{margin:14px auto 0;max-width:340px;text-align:left;font-size:13px;display:grid;gap:7px}
+.lines div{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--hair);padding-bottom:6px}
+.lines em{color:var(--muted);font-style:normal;margin-left:6px;font-variant-numeric:tabular-nums}
+.lines .pints svg{width:11px;height:16px}
+.toast{position:fixed;left:50%;top:14%;transform:translateX(-50%);background:var(--glass-2);border:1px solid var(--hair);color:var(--text);padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;z-index:9;transition:opacity .3s;pointer-events:none}
+.toast.hide{opacity:0}
+.pin{width:14px;height:14px;border-radius:50%;background:var(--c,#ff4d3d);border:2px solid #fff;box-shadow:0 0 0 4px rgba(0,0,0,.35),0 2px 10px rgba(0,0,0,.7)}
+.pin.real{background:var(--amber)}
+.pin.real::after{content:"";position:absolute;inset:-10px;border-radius:50%;border:1.5px solid var(--amber);animation:ring 1.6s ease-out infinite}
+@keyframes ring{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.6);opacity:0}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="top">
+  <div class="tl"><div class="brand">Stadium Pints<small id="modeTag">Daily round</small></div></div>
+  <div class="hud">
+    <div class="pill tog" id="labelsTog" title="Show place names and borders">Labels</div>
+    <div class="pill">Ground <b id="qn">1</b>/5</div>
+    <div class="pill">Pints <b id="score">0</b></div>
+  </div>
+</div>
+<div class="zoom">
+  <button class="iconbtn" id="zin" aria-label="Zoom in">+</button>
+  <button class="iconbtn" id="zout" aria-label="Zoom out">−</button>
+  <button class="iconbtn" id="world" aria-label="Whole world" title="Whole world"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></button>
+</div>
+
+<div class="card hide" id="card">
+  <div class="meta"><span class="chip" id="sport">Football</span><span id="round">Ground 1 of 5</span></div>
+  <div class="q" id="qname">Anfield</div>
+  <p class="sub" id="qhint">Liverpool FC</p>
+  <div id="guessRow" class="row">
+    <div class="hint" id="hintTxt">Spin the globe and tap where it is. You can re-drop before you lock it in.</div>
+    <button class="btn" id="lock" disabled>Lock it in</button>
+  </div>
+  <div id="resultRow" hidden>
+    <div class="result">
+      <div class="pints" id="rPints"></div>
+      <div><div class="verdict" id="rVerdict"></div><div class="dist" id="rDist"></div></div>
+    </div>
+    <div class="row"><div class="hint" id="rWhere"></div><button class="btn" id="next">Next ground</button></div>
+  </div>
+</div>
+
+<div class="veil" id="start">
+  <div class="panel">
+    <h1>Stadium Pints<small>Drop the pin. Earn the round.</small></h1>
+    <p>Five grounds. Spin the real globe, tap where you reckon it is, lock it in. The closer the pin, the more pints you pour.</p>
+    <div class="rules" id="rules"></div>
+    <p id="streakTxt" style="font-size:12px"></p>
+    <div class="actions">
+      <button class="btn" id="playDaily">Today's round</button>
+      <button class="btn ghost" id="playFree">Free play</button>
+    </div>
+  </div>
+</div>
+
+<div class="veil hide" id="end">
+  <div class="panel">
+    <h1 id="endTitle">Last orders</h1>
+    <div class="glass" id="glass"><i></i><b></b></div>
+    <div class="big"><span id="endScore">0</span> <small>/ 25 pints</small></div>
+    <div class="lines" id="endLines"></div>
+    <p id="endStreak" style="font-size:12px"></p>
+    <div class="actions">
+      <button class="btn" id="share">Share</button>
+      <button class="btn ghost" id="again">Free play</button>
+    </div>
+  </div>
+</div>
+<div class="toast hide" id="toast"></div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script>
+/* ---------- the grounds ---------- */
+// [name, hint shown to the player, sport, where (revealed after), lat, lng]
+const GROUNDS = [
+ ["Anfield","Liverpool FC","Football","Liverpool, England",53.4308,-2.9608],
+ ["Old Trafford","Manchester United","Football","Manchester, England",53.4631,-2.2913],
+ ["Etihad Stadium","Manchester City","Football","Manchester, England",53.4831,-2.2004],
+ ["Wembley Stadium","England, FA Cup finals","Football","London, England",51.5560,-0.2795],
+ ["Emirates Stadium","Arsenal","Football","London, England",51.5549,-0.1084],
+ ["Tottenham Hotspur Stadium","Spurs","Football","London, England",51.6043,-0.0665],
+ ["Stamford Bridge","Chelsea","Football","London, England",51.4817,-0.1910],
+ ["Villa Park","Aston Villa","Football","Birmingham, England",52.5092,-1.8847],
+ ["St James' Park","Newcastle United","Football","Newcastle upon Tyne, England",54.9756,-1.6217],
+ ["Goodison Park","Everton (the old one)","Football","Liverpool, England",53.4388,-2.9663],
+ ["Elland Road","Leeds United","Football","Leeds, England",53.7778,-1.5721],
+ ["London Stadium","West Ham, 2012 Olympics","Football","Stratford, London",51.5387,-0.0166],
+ ["Craven Cottage","Fulham","Football","London, England",51.4749,-0.2216],
+ ["Selhurst Park","Crystal Palace","Football","London, England",51.3983,-0.0855],
+ ["Stadium of Light","Sunderland","Football","Sunderland, England",54.9145,-1.3883],
+ ["Riverside Stadium","Middlesbrough","Football","Middlesbrough, England",54.5781,-1.2168],
+ ["Bramall Lane","Sheffield United","Football","Sheffield, England",53.3703,-1.4708],
+ ["Hillsborough","Sheffield Wednesday","Football","Sheffield, England",53.4114,-1.5006],
+ ["City Ground","Nottingham Forest","Football","Nottingham, England",52.9400,-1.1329],
+ ["Molineux","Wolves","Football","Wolverhampton, England",52.5903,-2.1304],
+ ["St Mary's Stadium","Southampton","Football","Southampton, England",50.9058,-1.3911],
+ ["Fratton Park","Portsmouth","Football","Portsmouth, England",50.7964,-1.0639],
+ ["Carrow Road","Norwich City","Football","Norwich, England",52.6221,1.3091],
+ ["Portman Road","Ipswich Town","Football","Ipswich, England",52.0551,1.1447],
+ ["King Power Stadium","Leicester City","Football","Leicester, England",52.6204,-1.1422],
+ ["Turf Moor","Burnley","Football","Burnley, England",53.7890,-2.2302],
+ ["Ewood Park","Blackburn Rovers","Football","Blackburn, England",53.7286,-2.4892],
+ ["Deepdale","Preston North End","Football","Preston, England",53.7722,-2.6880],
+ ["Bloomfield Road","Blackpool","Football","Blackpool, England",53.8046,-3.0481],
+ ["Vicarage Road","Watford","Football","Watford, England",51.6499,-0.4015],
+ ["Kenilworth Road","Luton Town","Football","Luton, England",51.8843,-0.4316],
+ ["Ashton Gate","Bristol City","Football","Bristol, England",51.4400,-2.6205],
+ ["Home Park","Plymouth Argyle","Football","Plymouth, England",50.3881,-4.1508],
+ ["Gtech Community Stadium","Brentford","Football","London, England",51.4907,-0.2888],
+ ["Amex Stadium","Brighton & Hove Albion","Football","Falmer, near Brighton",50.8616,-0.0837],
+ ["Cardiff City Stadium","Cardiff City","Football","Cardiff, Wales",51.4728,-3.2032],
+ ["Swansea.com Stadium","Swansea City","Football","Swansea, Wales",51.6428,-3.9346],
+ ["Principality Stadium","Welsh rugby","Rugby","Cardiff, Wales",51.4782,-3.1826],
+ ["Celtic Park","Celtic","Football","Glasgow, Scotland",55.8497,-4.2055],
+ ["Ibrox","Rangers","Football","Glasgow, Scotland",55.8531,-4.3093],
+ ["Hampden Park","Scotland","Football","Glasgow, Scotland",55.8259,-4.2520],
+ ["Murrayfield","Scottish rugby","Rugby","Edinburgh, Scotland",55.9422,-3.2409],
+ ["Windsor Park","Northern Ireland","Football","Belfast, Northern Ireland",54.5826,-5.9553],
+ ["Aviva Stadium","Ireland rugby & football","Rugby","Dublin, Ireland",53.3352,-6.2285],
+ ["Croke Park","GAA headquarters","GAA","Dublin, Ireland",53.3607,-6.2512],
+ ["Twickenham","England rugby","Rugby","London, England",51.4559,-0.3415],
+ ["Lord's","The home of cricket","Cricket","St John's Wood, London",51.5294,-0.1727],
+ ["The Oval","Surrey, the last Ashes Test","Cricket","Kennington, London",51.4838,-0.1150],
+ ["Edgbaston","Warwickshire, Ashes Tests","Cricket","Birmingham, England",52.4558,-1.9025],
+ ["Headingley","Yorkshire, Stokes 2019","Cricket","Leeds, England",53.8176,-1.5822],
+ ["Trent Bridge","Nottinghamshire","Cricket","Nottingham, England",52.9369,-1.1323],
+ ["Old Trafford Cricket Ground","Lancashire","Cricket","Manchester, England",53.4567,-2.2871],
+ ["Centre Court","Wimbledon","Tennis","London, England",51.4340,-0.2143],
+ ["Alexandra Palace","World Darts Championship","Darts","London, England",51.5942,-0.1300],
+ ["The Crucible","World Snooker Championship","Snooker","Sheffield, England",53.3797,-1.4669],
+ ["Cheltenham Racecourse","The Festival, the Gold Cup","Racing","Cheltenham, England",51.9196,-2.0708],
+ ["Aintree","The Grand National","Racing","Liverpool, England",53.4756,-2.9412],
+ ["Ascot Racecourse","Royal Ascot","Racing","Ascot, England",51.4113,-0.6782],
+ ["Silverstone","British Grand Prix","Motorsport","Northamptonshire, England",52.0786,-1.0169],
+ ["The Old Course","St Andrews, The Open","Golf","St Andrews, Scotland",56.3432,-2.8020],
+ ["Camp Nou","Barcelona","Football","Barcelona, Spain",41.3809,2.1228],
+ ["Santiago Bernabéu","Real Madrid","Football","Madrid, Spain",40.4531,-3.6883],
+ ["Metropolitano","Atlético Madrid","Football","Madrid, Spain",40.4362,-3.5995],
+ ["Mestalla","Valencia","Football","Valencia, Spain",39.4747,-0.3583],
+ ["Ramón Sánchez-Pizjuán","Sevilla","Football","Seville, Spain",37.3840,-5.9705],
+ ["San Mamés","Athletic Bilbao","Football","Bilbao, Spain",43.2641,-2.9496],
+ ["San Siro","Milan and Inter","Football","Milan, Italy",45.4781,9.1240],
+ ["Stadio Olimpico","Roma and Lazio","Football","Rome, Italy",41.9339,12.4549],
+ ["Allianz Stadium","Juventus","Football","Turin, Italy",45.1096,7.6413],
+ ["Stadio Diego Armando Maradona","Napoli","Football","Naples, Italy",40.8280,14.1930],
+ ["Stadio Artemio Franchi","Fiorentina","Football","Florence, Italy",43.7808,11.2823],
+ ["Allianz Arena","Bayern Munich","Football","Munich, Germany",48.2188,11.6247],
+ ["Signal Iduna Park","Borussia Dortmund, the Yellow Wall","Football","Dortmund, Germany",51.4926,7.4518],
+ ["Olympiastadion","Hertha Berlin, 2006 World Cup final","Football","Berlin, Germany",52.5147,13.2395],
+ ["Red Bull Arena","RB Leipzig","Football","Leipzig, Germany",51.3458,12.3482],
+ ["Parc des Princes","Paris Saint-Germain","Football","Paris, France",48.8414,2.2530],
+ ["Stade de France","France, 1998 World Cup final","Football","Saint-Denis, France",48.9244,2.3601],
+ ["Stade Vélodrome","Marseille","Football","Marseille, France",43.2699,5.3958],
+ ["Roland Garros","The French Open","Tennis","Paris, France",48.8470,2.2473],
+ ["Johan Cruyff Arena","Ajax","Football","Amsterdam, Netherlands",52.3143,4.9418],
+ ["Estádio da Luz","Benfica","Football","Lisbon, Portugal",38.7527,-9.1847],
+ ["Estádio do Dragão","Porto","Football","Porto, Portugal",41.1617,-8.5857],
+ ["Ernst-Happel-Stadion","Austria, Euro 2008 final","Football","Vienna, Austria",48.2072,16.4206],
+ ["Puskás Aréna","Hungary","Football","Budapest, Hungary",47.5040,19.0975],
+ ["Stadion Narodowy","Poland","Football","Warsaw, Poland",52.2395,21.0456],
+ ["Parken","Denmark, FC Copenhagen","Football","Copenhagen, Denmark",55.7026,12.5722],
+ ["Friends Arena","Sweden","Football","Solna, Stockholm",59.3727,18.0001],
+ ["Ullevaal Stadion","Norway","Football","Oslo, Norway",59.9489,10.7344],
+ ["Luzhniki Stadium","2018 World Cup final","Football","Moscow, Russia",55.7158,37.5537],
+ ["Gazprom Arena","Zenit","Football","St Petersburg, Russia",59.9727,30.2208],
+ ["NSC Olimpiyskiy","Ukraine, 2012 Champions League final","Football","Kyiv, Ukraine",50.4333,30.5219],
+ ["Rajko Mitić Stadium","Red Star Belgrade, the Marakana","Football","Belgrade, Serbia",44.7832,20.4650],
+ ["Stadion Maksimir","Dinamo Zagreb","Football","Zagreb, Croatia",45.8189,16.0183],
+ ["Atatürk Olympic Stadium","Istanbul 2005, that comeback","Football","Istanbul, Turkey",41.0745,28.7650],
+ ["Spyros Louis Olympic Stadium","Athens 2004 Olympics","Football","Athens, Greece",38.0362,23.7876],
+ ["Monza","Italian Grand Prix, the Temple of Speed","Motorsport","Monza, Italy",45.6156,9.2811],
+ ["Spa-Francorchamps","Belgian Grand Prix, Eau Rouge","Motorsport","Stavelot, Belgium",50.4372,5.9714],
+ ["Circuit de Monaco","Monaco Grand Prix","Motorsport","Monte Carlo, Monaco",43.7347,7.4206],
+ ["Nürburgring","The Green Hell","Motorsport","Nürburg, Germany",50.3356,6.9475],
+ ["Circuit de la Sarthe","Le Mans 24 Hours","Motorsport","Le Mans, France",47.9500,0.2244],
+ ["Maracanã","Brazil, 2014 World Cup final","Football","Rio de Janeiro, Brazil",-22.9122,-43.2302],
+ ["Arena Corinthians","Corinthians","Football","São Paulo, Brazil",-23.5453,-46.4742],
+ ["Mineirão","Brazil 1–7 Germany","Football","Belo Horizonte, Brazil",-19.8659,-43.9711],
+ ["Interlagos","Brazilian Grand Prix","Motorsport","São Paulo, Brazil",-23.7036,-46.6997],
+ ["La Bombonera","Boca Juniors","Football","Buenos Aires, Argentina",-34.6355,-58.3648],
+ ["El Monumental","River Plate, Argentina","Football","Buenos Aires, Argentina",-34.5453,-58.4498],
+ ["Estadio Centenario","First ever World Cup final, 1930","Football","Montevideo, Uruguay",-34.8943,-56.1528],
+ ["Estadio Nacional","Chile","Football","Santiago, Chile",-33.4646,-70.6106],
+ ["Estadio Hernando Siles","Bolivia, 3,600m up","Football","La Paz, Bolivia",-16.4996,-68.1226],
+ ["Estadio Azteca","Mexico, Maradona's Hand of God","Football","Mexico City, Mexico",19.3029,-99.1505],
+ ["Estadio BBVA","Monterrey","Football","Monterrey, Mexico",25.6692,-100.2445],
+ ["MetLife Stadium","Giants and Jets, 2026 World Cup final","American football","East Rutherford, New Jersey",40.8135,-74.0745],
+ ["SoFi Stadium","Rams and Chargers","American football","Inglewood, California",33.9535,-118.3392],
+ ["AT&T Stadium","Dallas Cowboys","American football","Arlington, Texas",32.7473,-97.0945],
+ ["Lambeau Field","Green Bay Packers","American football","Green Bay, Wisconsin",44.5013,-88.0622],
+ ["Arrowhead Stadium","Kansas City Chiefs","American football","Kansas City, Missouri",39.0489,-94.4839],
+ ["Hard Rock Stadium","Miami Dolphins","American football","Miami Gardens, Florida",25.9580,-80.2389],
+ ["Mercedes-Benz Stadium","Atlanta Falcons","American football","Atlanta, Georgia",33.7554,-84.4010],
+ ["Caesars Superdome","New Orleans Saints","American football","New Orleans, Louisiana",29.9511,-90.0812],
+ ["Lumen Field","Seattle Seahawks","American football","Seattle, Washington",47.5952,-122.3316],
+ ["Levi's Stadium","San Francisco 49ers","American football","Santa Clara, California",37.4033,-121.9694],
+ ["Allegiant Stadium","Las Vegas Raiders","American football","Las Vegas, Nevada",36.0909,-115.1833],
+ ["Michigan Stadium","The Big House, 107,000 seats","American football","Ann Arbor, Michigan",42.2658,-83.7487],
+ ["Rose Bowl","1994 World Cup final","American football","Pasadena, California",34.1613,-118.1676],
+ ["Yankee Stadium","New York Yankees","Baseball","The Bronx, New York",40.8296,-73.9262],
+ ["Fenway Park","Boston Red Sox","Baseball","Boston, Massachusetts",42.3467,-71.0972],
+ ["Wrigley Field","Chicago Cubs","Baseball","Chicago, Illinois",41.9484,-87.6553],
+ ["Dodger Stadium","LA Dodgers","Baseball","Los Angeles, California",34.0739,-118.2400],
+ ["Oracle Park","San Francisco Giants","Baseball","San Francisco, California",37.7786,-122.3893],
+ ["Camden Yards","Baltimore Orioles","Baseball","Baltimore, Maryland",39.2839,-76.6217],
+ ["Madison Square Garden","Knicks and Rangers","Basketball","Manhattan, New York",40.7505,-73.9934],
+ ["TD Garden","Boston Celtics and Bruins","Basketball","Boston, Massachusetts",42.3662,-71.0621],
+ ["United Center","Chicago Bulls, the Jordan era","Basketball","Chicago, Illinois",41.8807,-87.6742],
+ ["Crypto.com Arena","LA Lakers","Basketball","Los Angeles, California",34.0430,-118.2673],
+ ["Chase Center","Golden State Warriors","Basketball","San Francisco, California",37.7680,-122.3877],
+ ["Arthur Ashe Stadium","The US Open","Tennis","Queens, New York",40.7499,-73.8470],
+ ["Augusta National","The Masters","Golf","Augusta, Georgia",33.5030,-82.0227],
+ ["Pebble Beach","US Open golf venue","Golf","Monterey, California",36.5687,-121.9500],
+ ["Churchill Downs","The Kentucky Derby","Racing","Louisville, Kentucky",38.2040,-85.7700],
+ ["Indianapolis Motor Speedway","The Indy 500","Motorsport","Indianapolis, Indiana",39.7954,-86.2353],
+ ["Daytona International Speedway","The Daytona 500","Motorsport","Daytona Beach, Florida",29.1850,-81.0705],
+ ["Circuit of the Americas","United States Grand Prix","Motorsport","Austin, Texas",30.1328,-97.6411],
+ ["BC Place","Vancouver Whitecaps","Football","Vancouver, Canada",49.2768,-123.1119],
+ ["Rogers Centre","Toronto Blue Jays","Baseball","Toronto, Canada",43.6414,-79.3894],
+ ["Scotiabank Arena","Toronto Raptors and Maple Leafs","Basketball","Toronto, Canada",43.6435,-79.3791],
+ ["Bell Centre","Montreal Canadiens","Ice hockey","Montreal, Canada",45.4961,-73.5693],
+ ["Olympic Stadium","Montreal 1976","Athletics","Montreal, Canada",45.5579,-73.5515],
+ ["Melbourne Cricket Ground","The MCG, Boxing Day Test","Cricket","Melbourne, Australia",-37.8200,144.9834],
+ ["Rod Laver Arena","The Australian Open","Tennis","Melbourne, Australia",-37.8216,144.9785],
+ ["Sydney Cricket Ground","The SCG","Cricket","Sydney, Australia",-33.8915,151.2246],
+ ["Accor Stadium","Sydney 2000 Olympics","Athletics","Sydney, Australia",-33.8474,151.0633],
+ ["Suncorp Stadium","The Gabba's noisy neighbour, Broncos","Rugby","Brisbane, Australia",-27.4648,153.0096],
+ ["Adelaide Oval","Adelaide Test cricket","Cricket","Adelaide, Australia",-34.9157,138.5961],
+ ["Optus Stadium","Perth Test cricket, AFL","Cricket","Perth, Australia",-31.9511,115.8892],
+ ["Eden Park","All Blacks","Rugby","Auckland, New Zealand",-36.8749,174.7447],
+ ["Sky Stadium","The Cake Tin","Rugby","Wellington, New Zealand",-41.2730,174.7857],
+ ["Ellis Park","1995 Rugby World Cup final","Rugby","Johannesburg, South Africa",-26.1977,28.0608],
+ ["FNB Stadium","Soccer City, 2010 World Cup final","Football","Johannesburg, South Africa",-26.2349,27.9825],
+ ["Cape Town Stadium","2010 World Cup semi-final","Football","Cape Town, South Africa",-33.9036,18.4113],
+ ["Newlands","Western Province cricket","Cricket","Cape Town, South Africa",-33.9728,18.4664],
+ ["Moses Mabhida Stadium","2010 World Cup, the arch","Football","Durban, South Africa",-29.8290,31.0300],
+ ["Cairo International Stadium","Egypt, Al Ahly v Zamalek","Football","Cairo, Egypt",30.0686,31.3122],
+ ["Eden Gardens","Kolkata Knight Riders, 2001 Test","Cricket","Kolkata, India",22.5646,88.3433],
+ ["Wankhede Stadium","Mumbai Indians, 2011 World Cup final","Cricket","Mumbai, India",18.9389,72.8258],
+ ["Narendra Modi Stadium","World's biggest cricket ground","Cricket","Ahmedabad, India",23.0917,72.5976],
+ ["Gaddafi Stadium","Pakistan cricket","Cricket","Lahore, Pakistan",31.5133,74.3335],
+ ["R. Premadasa Stadium","Sri Lanka cricket","Cricket","Colombo, Sri Lanka",6.9402,79.8729],
+ ["Azadi Stadium","Iran","Football","Tehran, Iran",35.7247,51.2757],
+ ["Lusail Stadium","2022 World Cup final, Messi's night","Football","Lusail, Qatar",25.4200,51.4900],
+ ["Khalifa International Stadium","Qatar 2022, 2019 World Athletics","Athletics","Doha, Qatar",25.2633,51.4483],
+ ["Japan National Stadium","Tokyo 2020 Olympics","Athletics","Tokyo, Japan",35.6779,139.7145],
+ ["Tokyo Dome","Yomiuri Giants, the Big Egg","Baseball","Tokyo, Japan",35.7056,139.7519],
+ ["Nissan Stadium","2002 World Cup final, 2019 Rugby World Cup final","Football","Yokohama, Japan",35.5100,139.6063],
+ ["Saitama Stadium","Urawa Reds","Football","Saitama, Japan",35.9030,139.7176],
+ ["Sapporo Dome","2002 World Cup, England 1–0 Argentina","Football","Sapporo, Japan",43.0150,141.4098],
+ ["Suzuka Circuit","Japanese Grand Prix","Motorsport","Suzuka, Japan",34.8431,136.5407],
+ ["Beijing National Stadium","The Bird's Nest, 2008 Olympics","Athletics","Beijing, China",39.9929,116.3967],
+ ["Shanghai Stadium","Shanghai Shenhua","Football","Shanghai, China",31.1838,121.4367],
+ ["Seoul World Cup Stadium","2002 World Cup opener","Football","Seoul, South Korea",37.5683,126.8972],
+ ["Rajamangala Stadium","Thailand","Football","Bangkok, Thailand",13.7551,100.6219],
+ ["Bukit Jalil National Stadium","Malaysia","Football","Kuala Lumpur, Malaysia",3.0548,101.6914],
+ ["Gelora Bung Karno","Indonesia","Football","Jakarta, Indonesia",-6.2186,106.8023],
+ ["Salt Lake Stadium","East Bengal v Mohun Bagan derby","Football","Kolkata, India",22.5697,88.4108],
+];
+
+/* ---------- scoring: miles → pints ---------- */
+const BANDS = [[3,5,"Bang on. Full round."],[30,4,"Next town over"],[150,3,"Right region"],[600,2,"Right-ish country"],[2000,1,"Same continent, just"],[Infinity,0,"You're buying"]];
+const R_MI = 3958.8;
+function haversine(a,b){
+  const toR=x=>x*Math.PI/180, dLat=toR(b.lat-a.lat), dLng=toR(b.lng-a.lng);
+  const h=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R_MI*Math.asin(Math.sqrt(h));
+}
+function greatCircle(a,b,n=64){
+  const toR=x=>x*Math.PI/180, toD=x=>x*180/Math.PI;
+  const φ1=toR(a.lat),λ1=toR(a.lng),φ2=toR(b.lat),λ2=toR(b.lng);
+  const d=2*Math.asin(Math.sqrt(Math.sin((φ2-φ1)/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin((λ2-λ1)/2)**2));
+  if(d<1e-9) return [[a.lng,a.lat],[b.lng,b.lat]];
+  const pts=[];
+  for(let i=0;i<=n;i++){
+    const f=i/n, A=Math.sin((1-f)*d)/Math.sin(d), B=Math.sin(f*d)/Math.sin(d);
+    const x=A*Math.cos(φ1)*Math.cos(λ1)+B*Math.cos(φ2)*Math.cos(λ2);
+    const y=A*Math.cos(φ1)*Math.sin(λ1)+B*Math.cos(φ2)*Math.sin(λ2);
+    const z=A*Math.sin(φ1)+B*Math.sin(φ2);
+    pts.push([toD(Math.atan2(y,x)),toD(Math.atan2(z,Math.sqrt(x*x+y*y)))]);
+  }
+  for(let i=1;i<pts.length;i++){ while(pts[i][0]-pts[i-1][0]>180)pts[i][0]-=360; while(pts[i][0]-pts[i-1][0]<-180)pts[i][0]+=360; }
+  return pts;
+}
+function fmtMi(mi){ const km=mi*1.609344; if(mi<1) return `${Math.round(mi*1760)} yards`; const r=mi<10?mi.toFixed(1):Math.round(mi).toLocaleString(); const k=km<10?km.toFixed(1):Math.round(km).toLocaleString(); return `${r} mi (${k} km)`; }
+// a small vector pint glass; n filled out of 5
+const PINT=(f)=>`<svg viewBox="0 0 18 26" class="${f?'':'e'}"><path d="M3 2h12l-1.2 21.5a1.5 1.5 0 0 1-1.5 1.5H5.7a1.5 1.5 0 0 1-1.5-1.5Z" fill="${f?'#f0b353':'none'}" stroke="#fff" stroke-width="1.3"/>${f?'<path d="M3.4 2h11.2l-.3 5H3.7Z" fill="#fff8ea"/>':''}</svg>`;
+const pintStr=n=>Array.from({length:5},(_,i)=>PINT(i<n)).join("");
+const pintTxt=n=>n?"🍺".repeat(n):"🫗";
+document.getElementById("rules").innerHTML=[["within 3 miles, bang on",5],["within 30 miles",4],["within 150 miles",3],["within 600 miles",2],["within 2,000 miles",1],["further, you're buying",0]]
+  .map(([t,n])=>`<span class="pints">${pintStr(n)}</span><span>${t}</span>`).join("");
+
+/* ---------- seeded picks ---------- */
+const EPOCH=Date.UTC(2026,9,6); // 6 Oct 2026 = round #1
+const dayNo=Math.floor((Date.now()-EPOCH)/864e5)+1;
+function rng(seed){ let s=seed>>>0||1; return ()=>{ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; return s/4294967296; }; }
+function pick5(seed){
+  const r=rng(seed), idx=GROUNDS.map((_,i)=>i);
+  for(let i=idx.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [idx[i],idx[j]]=[idx[j],idx[i]]; }
+  const out=[], seen=new Set();
+  for(const i of idx){ const w=GROUNDS[i][3]; if(seen.has(w)) continue; seen.add(w); out.push(GROUNDS[i]); if(out.length===5) break; }
+  return out;
+}
+
+/* ---------- map: real satellite imagery on a globe ---------- */
+const SAT="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const REF="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+const HOME={center:[-2,30],zoom:innerWidth<520?1.0:1.5};
+const map=new maplibregl.Map({
+  container:"map",
+  style:{
+    version:8,
+    projection:{type:"globe"},
+    sources:{
+      sat:{type:"raster",tiles:[SAT],tileSize:256,maxzoom:19,attribution:"Imagery © Esri, Maxar, Earthstar Geographics"},
+      ref:{type:"raster",tiles:[REF],tileSize:256,maxzoom:13}
+    },
+    layers:[
+      {id:"sat",type:"raster",source:"sat",paint:{"raster-fade-duration":150}},
+      {id:"ref",type:"raster",source:"ref",layout:{visibility:"none"},paint:{"raster-opacity":.9}}
+    ],
+    sky:{"atmosphere-blend":["interpolate",["linear"],["zoom"],0,1,5,1,7,0]},
+    light:{anchor:"map",position:[1.5,90,80],intensity:.35}
+  },
+  center:HOME.center,zoom:HOME.zoom,minZoom:0.8,maxZoom:18,
+  attributionControl:{compact:true},
+  dragRotate:false,pitchWithRotate:false,touchPitch:false
+});
+map.touchZoomRotate.disableRotation();
+map.on("style.load",()=>{ try{ map.setProjection({type:"globe"}); }catch(e){} });
+
+document.getElementById("zin").onclick=()=>map.zoomIn();
+document.getElementById("zout").onclick=()=>map.zoomOut();
+document.getElementById("world").onclick=()=>map.flyTo({...HOME,speed:1.2});
+const labelsTog=document.getElementById("labelsTog");
+labelsTog.onclick=()=>{ const on=!labelsTog.classList.contains("on"); labelsTog.classList.toggle("on",on); map.setLayoutProperty("ref","visibility",on?"visible":"none"); };
+
+/* ---------- game state ---------- */
+const $=id=>document.getElementById(id);
+let mode="daily", set=[], qi=0, guess=null, total=0, perRound=[], locked=false;
+let guessMarker=null, realMarker=null;
+const mk=(cls)=>{ const el=document.createElement("div"); el.className="pin "+cls; return new maplibregl.Marker({element:el,anchor:"center"}); };
+
+function clearRound(){
+  guessMarker?.remove(); realMarker?.remove(); guessMarker=realMarker=null; guess=null; locked=false;
+  if(map.getLayer("line")) map.removeLayer("line");
+  if(map.getSource("line")) map.removeSource("line");
+}
+function showQuestion(){
+  clearRound();
+  const g=set[qi];
+  $("sport").textContent=g[2]; $("round").textContent=`Ground ${qi+1} of 5`; $("qn").textContent=qi+1;
+  $("qname").textContent=g[0]; $("qhint").textContent=g[1];
+  $("guessRow").hidden=false; $("resultRow").hidden=true; $("lock").disabled=true;
+  $("hintTxt").textContent="Spin the globe and tap where it is. You can re-drop before you lock it in.";
+  $("card").classList.remove("hide"); $("map").classList.add("aiming");
+  map.flyTo({...HOME,speed:1.4});
+}
+map.on("click",e=>{
+  if(locked||$("card").classList.contains("hide")) return;
+  guess={lat:e.lngLat.lat,lng:e.lngLat.lng};
+  if(!guessMarker) guessMarker=mk("guess").setLngLat(e.lngLat).addTo(map); else guessMarker.setLngLat(e.lngLat);
+  $("lock").disabled=false; $("hintTxt").textContent="Pin dropped. Tap again to move it, or lock it in.";
+});
+$("lock").onclick=()=>{
+  if(!guess||locked) return; locked=true; $("map").classList.remove("aiming");
+  const g=set[qi], real={lat:g[4],lng:g[5]};
+  const mi=haversine(guess,real);
+  const band=BANDS.find(b=>mi<=b[0]); const pints=band[1];
+  total+=pints; perRound.push({name:g[0],mi,pints}); $("score").textContent=total;
+  realMarker=mk("real").setLngLat([real.lng,real.lat]).addTo(map);
+  map.addSource("line",{type:"geojson",data:{type:"Feature",geometry:{type:"LineString",coordinates:greatCircle(guess,real)}}});
+  map.addLayer({id:"line",type:"line",source:"line",paint:{"line-color":"#ffffff","line-width":1.5,"line-opacity":.9,"line-dasharray":[2,2]}});
+  $("rPints").innerHTML=pintStr(pints); $("rVerdict").textContent=band[2]; $("rDist").textContent=`${fmtMi(mi)} off`;
+  $("rWhere").textContent=`${g[0]} is in ${g[3]}.`;
+  $("next").textContent=qi===4?"Last orders":"Next ground";
+  $("guessRow").hidden=true; $("resultRow").hidden=false;
+  // show both pins, then swoop down onto the actual ground so you see it from above
+  const b=new maplibregl.LngLatBounds([guess.lng,guess.lat],[guess.lng,guess.lat]).extend([real.lng,real.lat]);
+  map.fitBounds(b,{padding:{top:120,bottom:260,left:60,right:60},maxZoom:14,duration:1100});
+  setTimeout(()=>{ if(locked) map.flyTo({center:[real.lng,real.lat],zoom:15.8,speed:.9,curve:1.6}); },1700);
+};
+$("next").onclick=()=>{ qi++; if(qi<5) showQuestion(); else finish(); };
+
+function finish(){
+  $("card").classList.add("hide"); clearRound();
+  $("endScore").textContent=total;
+  $("endTitle").textContent=total>=22?"Legend":total>=15?"Solid session":total>=8?"Half a shandy":"Round's on you";
+  $("endLines").innerHTML=perRound.map(r=>`<div><span>${r.name}${isNaN(r.mi)?"":`<em>${fmtMi(r.mi)}</em>`}</span><span class="pints">${pintStr(r.pints)}</span></div>`).join("");
+  const glass=$("glass"); glass.classList.remove("pour"); glass.querySelector("i").style.height="0"; glass.querySelector("b").style.bottom="0";
+  $("end").classList.remove("hide");
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ const h=Math.max(4,total/25*100); glass.classList.add("pour"); glass.querySelector("i").style.height=h+"%"; glass.querySelector("b").style.bottom=`calc(${h}% - 2px)`; }));
+  if(mode==="daily") saveDaily();
+  $("endStreak").textContent=mode==="daily"?streakLine():"Free play doesn't count towards your streak.";
+  map.flyTo({...HOME,speed:.8});
+}
+
+/* ---------- daily + streak (localStorage, this device only) ---------- */
+const LS="stadiumPints";
+const load=()=>{ try{ return JSON.parse(localStorage.getItem(LS)||"{}"); }catch{ return {}; } };
+const save=d=>{ try{ localStorage.setItem(LS,JSON.stringify(d)); }catch{} };
+function saveDaily(){
+  const d=load(); if(d.lastDay===dayNo) return;
+  d.streak=(d.lastDay===dayNo-1)?(d.streak||0)+1:1; d.lastDay=dayNo; d.best=Math.max(d.best||0,total); d.played=(d.played||0)+1;
+  d.results=d.results||{}; d.results[dayNo]={total,rounds:perRound.map(r=>r.pints)}; save(d);
+}
+function streakLine(){ const d=load(); return d.played?`Streak ${d.streak||0} · Best ${d.best||0}/25 · Played ${d.played}`:""; }
+
+function start(m){
+  mode=m; qi=0; total=0; perRound=[]; $("score").textContent=0;
+  const d=load();
+  if(m==="daily"&&d.lastDay===dayNo&&d.results?.[dayNo]){ // already played today: show the result again
+    total=d.results[dayNo].total; perRound=d.results[dayNo].rounds.map((p,i)=>({name:`Ground ${i+1}`,mi:NaN,pints:p}));
+    $("modeTag").textContent=`Round #${dayNo}`; $("start").classList.add("hide");
+    finish(); $("endStreak").textContent="You've had today's round already. "+streakLine(); return;
+  }
+  set=m==="daily"?pick5(dayNo*2654435761):pick5((Date.now()^(Math.random()*1e9))>>>0);
+  $("modeTag").textContent=m==="daily"?`Round #${dayNo}`:"Free play";
+  $("start").classList.add("hide"); $("end").classList.add("hide");
+  showQuestion();
+}
+$("playDaily").onclick=()=>start("daily");
+$("playFree").onclick=()=>start("free");
+$("again").onclick=()=>start("free");
+$("share").onclick=async()=>{
+  const head=mode==="daily"?`Stadium Pints #${dayNo}`:"Stadium Pints (free play)";
+  const txt=`${head} 🍺 ${total}/25\n${perRound.map(r=>pintTxt(r.pints)).join("  ")}\n${location.href.split("#")[0]}`;
+  try{ if(navigator.share) await navigator.share({text:txt}); else { await navigator.clipboard.writeText(txt); toast("Copied to clipboard"); } }catch{ toast("Couldn't share"); }
+};
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.remove("hide"); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.add("hide"),1800); }
+$("streakTxt").textContent=streakLine();
+</script>
+</body>
+</html>
